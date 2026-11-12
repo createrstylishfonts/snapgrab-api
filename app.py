@@ -7,7 +7,7 @@ CORS(app)
 
 @app.route('/')
 def home():
-    return "Snap Grab API is Running!"
+    return "Snap Grab API is Live!"
 
 @app.route('/api/get-video', methods=['POST'])
 def get_video():
@@ -21,7 +21,15 @@ def get_video():
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
-        'format': 'bestaudio/best' if fmt == 'MP3' else 'best[ext=mp4]/best'
+        'format': 'bestaudio/best' if fmt == 'MP3' else 'best[ext=mp4]/best',
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios', 'web']
+            }
+        },
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
+        }
     }
 
     try:
@@ -37,4 +45,4 @@ def get_video():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
-      
+    
