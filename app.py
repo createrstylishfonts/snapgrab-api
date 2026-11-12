@@ -1,3 +1,4 @@
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import yt_dlp
@@ -21,10 +22,12 @@ def get_video():
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
+        'socket_timeout': 15,
+        'retries': 1,
         'format': 'bestaudio/best' if fmt == 'MP3' else 'best[ext=mp4]/best',
         'extractor_args': {
             'youtube': {
-                'player_client': ['tv', 'mweb', 'android']
+                'player_client': ['tv', 'android']
             }
         }
     }
