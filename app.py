@@ -24,11 +24,8 @@ def get_video():
         'format': 'bestaudio/best' if fmt == 'MP3' else 'best[ext=mp4]/best',
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios', 'web']
+                'player_client': ['tv', 'mweb', 'android']
             }
-        },
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
         }
     }
 
