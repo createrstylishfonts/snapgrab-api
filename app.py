@@ -7,38 +7,87 @@ import re
 app = Flask(__name__)
 CORS(app)
 
-COBALT_INSTANCES = [
-    "https://api.cobalt.tools",
-    "https://cobalt-api.kwiatekmiki.com",
-    "https://cobalt.api.timelessnesses.me"
-]
+HEADERS = {
+    "Accept": "application/json",
+    "Content-Type": "application/json",
+    "User-Agent": "Mozilla/5.0 (Linux; Android 13; Redmi A4 5G) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+}
 
 def extract_youtube_id(url):
-    match = re.search(r'(?:v=|\/|youtu\.be\/)([0-9A-Za-z_-]{11})', url)
+    match = re.search(r'(?:v=|\/|youtu\.be\/|shorts\/)([0-9A-Za-z_-]{11})', url)
     return match.group(1) if match else None
 
+def try_piped_youtube(video_id, fmt):
+    piped_nodes = [
+        "https://pipedapi.kavin.rocks",
+        "https://pipedapi.tokhmi.xyz",
+        "https://pipedapi.moomoo.me",
+        "https://pipedapi.syncpundit.io"
+    ]
+    for node in piped_nodes:
+        try:
+            res = requests.get(f"{node}/streams/{video_id}", headers=HEADERS, timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                title = data.get("title", "YouTube_Video")
+                if fmt == "MP3":
+                    audios = data.get("audioStreams", [])
+                    if audios:
+                        best_audio = sorted(audios, key=lambda x: x.get("bitrate", 0), reverse=True)[0]
+                        return {"title": title, "download_url": best_audio["url"], "ext": "mp3"}
+                else:
+                    streams = [s for s in data.get("videoStreams", []) if not s.get("videoOnly") and s.get("mimeType", "").startswith("video/mp4")]
+                    if streams:
+                        best_vid = sorted(streams, key=lambda x: int(x.get("quality", "0").replace("p", "") or 0), reverse=True)[0]
+                        return {"title": title, "download_url": best_vid["url"], "ext": "mp4"}
+        except Exception:
+            continue
+    return None
+
+def try_invidious_youtube(video_id, fmt):
+    inv_nodes = [
+        "https://inv.nadeko.net",
+        "https://invidious.nerdvpn.de",
+        "https://iv.ggtyler.dev"
+    ]
+    for node in inv_nodes:
+        try:
+            res = requests.get(f"{node}/api/v1/videos/{video_id}", headers=HEADERS, timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                title = data.get("title", "YouTube_Video")
+                if fmt == "MP3":
+                    adaptive = [f for f in data.get("adaptiveFormats", []) if f.get("type", "").startswith("audio/")]
+                    if adaptive:
+                        return {"title": title, "download_url": adaptive[0]["url"], "ext": "mp3"}
+                else:
+                    formats = [f for f in data.get("formatStreams", []) if f.get("container") == "mp4"]
+                    if formats:
+                        return {"title": title, "download_url": formats[-1]["url"], "ext": "mp4"}
+        except Exception:
+            continue
+    return None
+
 def try_cobalt_youtube(url, fmt):
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    }
+    cobalt_nodes = [
+        "https://api.cobalt.tools/",
+        "https://co.wuk.sh/api/json"
+    ]
     payload = {
         "url": url,
         "downloadMode": "audio" if fmt == "MP3" else "auto",
         "videoQuality": "720",
         "audioFormat": "mp3"
     }
-    for instance in COBALT_INSTANCES:
+    for node in cobalt_nodes:
         try:
-            res = requests.post(instance, json=payload, headers=headers, timeout=12)
+            res = requests.post(node, json=payload, headers=HEADERS, timeout=10)
             if res.status_code == 200:
                 data = res.json()
-                dl_url = data.get("url")
-                if dl_url:
+                if data.get("url"):
                     return {
                         "title": data.get("filename", "YouTube_Video").rsplit('.', 1)[0],
-                        "download_url": dl_url,
+                        "download_url": data["url"],
                         "ext": "mp3" if fmt == "MP3" else "mp4"
                     }
         except Exception:
@@ -47,7 +96,7 @@ def try_cobalt_youtube(url, fmt):
 
 @app.route('/')
 def home():
-    return "Snap Grab API is Live!"
+    return "Snap Grab Multi-Engine API is Live!"
 
 @app.route('/api/get-video', methods=['POST'])
 def get_video():
@@ -58,26 +107,28 @@ def get_video():
     if not url:
         return jsonify({'error': 'URL is required'}), 400
 
-    is_youtube = 'youtube.com' in url or 'youtu.be' in url
+    video_id = extract_youtube_id(url)
+    is_youtube = ('youtube.com' in url or 'youtu.be' in url) and video_id
 
-    # 1. यदि YouTube लिंक है तो पहले Cobalt से तेज़ कोशिश करें
     if is_youtube:
-        cobalt_result = try_cobalt_youtube(url, fmt)
-        if cobalt_result:
-            return jsonify(cobalt_result)
+        result = try_piped_youtube(video_id, fmt)
+        if result:
+            return jsonify(result)
 
-    # 2. बाकी सभी साइट्स (Instagram, FB, X) और बैकअप के लिए yt-dlp
+        result = try_invidious_youtube(video_id, fmt)
+        if result:
+            return jsonify(result)
+
+        result = try_cobalt_youtube(url, fmt)
+        if result:
+            return jsonify(result)
+
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
         'socket_timeout': 15,
         'retries': 1,
-        'format': 'bestaudio/best' if fmt == 'MP3' else 'best[ext=mp4]/best',
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['tv', 'android']
-            }
-        }
+        'format': 'bestaudio/best' if fmt == 'MP3' else 'best[ext=mp4]/best'
     }
 
     try:
@@ -90,9 +141,9 @@ def get_video():
             })
     except Exception as e:
         if is_youtube:
-            return jsonify({'error': 'YouTube server busy. Please try again in a moment.'}), 500
+            return jsonify({'error': 'All YouTube nodes busy right now. Try another video or retry in 10s.'}), 500
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
-                
+                           
